@@ -9,6 +9,10 @@ N_PER_CATEGORIA = 3
 # ────────────────────────────────────────────────────────────
 
 FEED = {
+    "🌍 Mondo": [
+        "https://www.corriere.it/rss/esteri.xml",
+        "https://www.repubblica.it/rss/esteri/rss2.0.xml",
+    ],
     "🏛️ Politica": [
         "https://www.corriere.it/rss/politica.xml",
         "https://www.repubblica.it/rss/politica/rss2.0.xml",
