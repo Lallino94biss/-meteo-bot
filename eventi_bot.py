@@ -6,7 +6,8 @@ TELEGRAM_TOKEN = "8768768166:AAEwwMI3RmV39RTC7iHlQMw0AoYJRcuKNII"
 CHAT_ID        = "1394865007"
 LASTFM_API_KEY = "62444098dc2f0a74217f12405e0921ca"
 
-CITTA          = ["Bologna", "Imola", "Ferrara", "Ravenna", "Modena"]
+CITTA          = ["Bologna", "Imola", "Ferrara", "Ravenna", "Modena",
+                  "Madonna di Campiglio", "Pinzolo"]
 GENERI         = ["rock", "blues", "jazz"]
 MAX_EVENTI     = 15
 # ────────────────────────────────────────────────────────────
@@ -77,7 +78,8 @@ def is_in_zona(evento):
         region = location.get("country", "").lower()
 
         zone_keywords = ["bologna", "imola", "ferrara", "ravenna", "modena",
-                         "emilia", "romagna", "faenza", "cesena", "forlì", "forli"]
+                         "emilia", "romagna", "faenza", "cesena", "forlì", "forli",
+                         "madonna di campiglio", "campiglio", "pinzolo", "trentino"]
         return any(kw in city for kw in zone_keywords) and "italy" in country or "italia" in country
     except Exception:
         return False
@@ -113,7 +115,7 @@ def format_evento(evento):
 
 def build_message():
     today = datetime.now().strftime("%d %B %Y").capitalize()
-    msg = f"🎵 *EVENTI ROCK / BLUES / JAZZ*\n📅 Aggiornamento {today}\n📍 Bologna · Imola · Emilia-Romagna\n"
+    msg = f"🎵 *EVENTI ROCK / BLUES / JAZZ*\n📅 Aggiornamento {today}\n📍 Bologna · Imola · Emilia-Romagna · Campiglio · Pinzolo\n"
 
     eventi_trovati = []
     seen_ids = set()
