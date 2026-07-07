@@ -1,163 +1,159 @@
 import requests
 from datetime import datetime
+from xml.etree import ElementTree as ET
 
 # ── CONFIGURAZIONE ──────────────────────────────────────────
 TELEGRAM_TOKEN = "8768768166:AAEwwMI3RmV39RTC7iHlQMw0AoYJRcuKNII"
 CHAT_ID        = "1394865007"
-LASTFM_API_KEY = "62444098dc2f0a74217f12405e0921ca"
-
-CITTA          = ["Bologna", "Imola", "Ferrara", "Ravenna", "Modena",
-                  "Madonna di Campiglio", "Pinzolo"]
-GENERI         = ["rock", "blues", "jazz"]
-MAX_EVENTI     = 15
 # ────────────────────────────────────────────────────────────
 
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
-def get_eventi_citta(citta):
-    url = "https://ws.audioscrobbler.com/2.0/"
-    params = {
-        "method":   "geo.getevents",
-        "location": citta,
-        "api_key":  LASTFM_API_KEY,
-        "format":   "json",
-        "limit":    50,
-    }
+
+def fetch_eventbrite_bologna():
+    """Cerca eventi musicali rock/blues/jazz a Bologna su Eventbrite via RSS/API pubblica."""
+    eventi = []
     try:
-        r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return data.get("events", {}).get("event", [])
-    except Exception:
-        return []
+        url = "https://www.eventbrite.it/d/italy--bologna/music--rock/"
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        # parsing grezzo dei titoli dalla pagina
+        import re
+        titoli = re.findall(r'"name":"([^"]{10,80})"', r.text)
+        links  = re.findall(r'"url":"(https://www\.eventbrite\.it/e/[^"]+)"', r.text)
+        date   = re.findall(r'"start_date":"([^"]+)"', r.text)
+        seen = set()
+        for i, t in enumerate(titoli[:20]):
+            if t.lower() not in seen:
+                seen.add(t.lower())
+                link = links[i] if i < len(links) else "https://www.eventbrite.it"
+                data = date[i][:10] if i < len(date) else ""
+                eventi.append((t, link, data))
+    except Exception as e:
+        pass
+    return eventi[:5]
 
 
-def get_eventi_artista(artista):
-    url = "https://ws.audioscrobbler.com/2.0/"
-    params = {
-        "method":   "artist.getevents",
-        "artist":   artista,
-        "api_key":  LASTFM_API_KEY,
-        "format":   "json",
-        "limit":    10,
-    }
+def fetch_ticketone_bologna():
+    """Cerca concerti rock/blues/jazz a Bologna su TicketOne."""
+    eventi = []
     try:
-        r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return data.get("events", {}).get("event", [])
+        urls = [
+            "https://www.ticketone.it/city/bologna-66/genre/rock-249/",
+            "https://www.ticketone.it/city/bologna-66/genre/jazz-blues-250/",
+        ]
+        import re
+        for url in urls:
+            r = requests.get(url, headers=HEADERS, timeout=10)
+            # estrae titoli e link
+            titoli = re.findall(r'class="[^"]*event[^"]*title[^"]*"[^>]*>([^<]{5,80})<', r.text)
+            links  = re.findall(r'href="(https://www\.ticketone\.it/[^"]+artist[^"]+)"', r.text)
+            date   = re.findall(r'(\d{2}/\d{2}/\d{4})', r.text)
+            for i, t in enumerate(titoli[:10]):
+                t = t.strip()
+                if len(t) > 5:
+                    link = links[i] if i < len(links) else url
+                    data = date[i] if i < len(date) else ""
+                    eventi.append((t, link, data))
     except Exception:
-        return []
+        pass
+    return eventi[:5]
 
 
-def get_top_artisti_genere(genere):
-    url = "https://ws.audioscrobbler.com/2.0/"
-    params = {
-        "method":  "tag.gettopartists",
-        "tag":     genere,
-        "api_key": LASTFM_API_KEY,
-        "format":  "json",
-        "limit":   20,
-    }
+def fetch_campiglio_eventi():
+    """Scarica eventi da campigliodolomiti.it."""
+    eventi = []
     try:
-        r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        artisti = data.get("topartists", {}).get("artist", [])
-        return [a["name"] for a in artisti]
+        import re
+        url = "https://www.campigliodolomiti.it/it/pianifica/calendario-eventi"
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        # cerca pattern titolo + data
+        titoli = re.findall(r'"name"\s*:\s*"([^"]{5,100})"', r.text)
+        date   = re.findall(r'"startDate"\s*:\s*"([^"]+)"', r.text)
+        urls_ev = re.findall(r'"url"\s*:\s*"(https://www\.campigliodolomiti[^"]+)"', r.text)
+        seen = set()
+        for i, t in enumerate(titoli[:15]):
+            t = t.strip()
+            if t.lower() not in seen and len(t) > 4:
+                seen.add(t.lower())
+                data = date[i][:10] if i < len(date) else ""
+                link = urls_ev[i] if i < len(urls_ev) else url
+                eventi.append((t, link, data))
     except Exception:
-        return []
+        pass
+    return eventi[:8]
 
 
-def is_in_zona(evento):
-    """Controlla se l'evento è nella zona Bologna/Imola/Emilia-Romagna."""
+def fetch_suoni_dolomiti():
+    """Scarica eventi da isuonidelledolomiti.it."""
+    eventi = []
     try:
-        venue = evento.get("venue", {})
-        location = venue.get("location", {})
-        city = location.get("city", "").lower()
-        country = location.get("country", "").lower()
-        region = location.get("country", "").lower()
-
-        zone_keywords = ["bologna", "imola", "ferrara", "ravenna", "modena",
-                         "emilia", "romagna", "faenza", "cesena", "forlì", "forli",
-                         "madonna di campiglio", "campiglio", "pinzolo", "trentino"]
-        return any(kw in city for kw in zone_keywords) and "italy" in country or "italia" in country
+        import re
+        url = "https://www.isuonidelledolomiti.it/edizioni/edizione-2026"
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        # cerca date e descrizioni
+        blocchi = re.findall(r'(\d{2}/\d{2}/\d{4})[^<]*<[^>]+>([^<]{10,100})', r.text)
+        for data, titolo in blocchi[:8]:
+            titolo = titolo.strip()
+            if len(titolo) > 5:
+                eventi.append((titolo, url, data))
     except Exception:
-        return False
-
-
-def format_evento(evento):
-    try:
-        titolo   = evento.get("title", "Evento")
-        artisti  = evento.get("artists", {})
-        if isinstance(artisti, dict):
-            artista = artisti.get("headliner", "")
-        else:
-            artista = titolo
-
-        venue    = evento.get("venue", {})
-        nome_venue = venue.get("name", "")
-        location = venue.get("location", {})
-        citta    = location.get("city", "")
-
-        data_raw = evento.get("startDate", "")
-        try:
-            dt = datetime.strptime(data_raw[:16], "%a, %d %b %Y")
-            data_str = dt.strftime("%d/%m/%Y")
-        except Exception:
-            data_str = data_raw[:10]
-
-        url = evento.get("url", "")
-
-        return f"🎸 *{artista}*\n   📅 {data_str} · 📍 {nome_venue}, {citta}\n   🔗 {url}"
-    except Exception:
-        return None
+        pass
+    return eventi[:5]
 
 
 def build_message():
     today = datetime.now().strftime("%d %B %Y").capitalize()
-    msg = f"🎵 *EVENTI ROCK / BLUES / JAZZ*\n📅 Aggiornamento {today}\n📍 Bologna · Imola · Emilia-Romagna · Campiglio · Pinzolo\n"
+    msg = f"🎵 *EVENTI ROCK / BLUES / JAZZ*\n📅 Aggiornamento {today}\n"
 
-    eventi_trovati = []
-    seen_ids = set()
+    # ── BOLOGNA / IMOLA ──
+    msg += "\n━━━━━━━━━━━━━━━━━━━━\n🏙️ *BOLOGNA / IMOLA*\n"
 
-    # Cerca per città
-    for citta in CITTA:
-        eventi = get_eventi_citta(citta)
-        for e in eventi:
-            eid = e.get("id", "")
-            if eid not in seen_ids:
-                seen_ids.add(eid)
-                eventi_trovati.append(e)
+    ev_to = fetch_ticketone_bologna()
+    ev_eb = fetch_eventbrite_bologna()
+    tutti = ev_to + ev_eb
 
-    # Filtra per genere (cerca tag nell'evento)
-    eventi_genere = []
-    for e in eventi_trovati:
-        tags = e.get("tags", {}).get("tag", [])
-        if isinstance(tags, dict):
-            tags = [tags]
-        tag_names = [t.get("name", "").lower() for t in tags]
-        if any(g in tag_names for g in GENERI) or True:  # includi tutti gli eventi zona
-            eventi_genere.append(e)
-
-    # Ordina per data
-    def get_date(e):
-        try:
-            return datetime.strptime(e.get("startDate", "")[:16], "%a, %d %b %Y")
-        except Exception:
-            return datetime.max
-
-    eventi_genere.sort(key=get_date)
-
-    if eventi_genere:
-        for e in eventi_genere[:MAX_EVENTI]:
-            formatted = format_evento(e)
-            if formatted:
-                msg += f"\n{formatted}\n"
+    if tutti:
+        seen = set()
+        count = 0
+        for titolo, link, data in tutti:
+            key = titolo[:30].lower()
+            if key not in seen:
+                seen.add(key)
+                data_str = f" · 📅 {data}" if data else ""
+                msg += f"• [{titolo}]({link}){data_str}\n"
+                count += 1
+            if count >= 6:
+                break
     else:
-        msg += "\n_Nessun evento trovato per il prossimo periodo._\n"
-        msg += "\n💡 _Prova a controllare direttamente su:_\n"
-        msg += "🔗 [TicketOne Bologna](https://www.ticketone.it)\n"
-        msg += "🔗 [Eventbrite Bologna](https://www.eventbrite.it/d/italy--bologna/music/)\n"
+        msg += "• [Concerti rock Bologna](https://www.ticketone.it/city/bologna-66/genre/rock-249/)\n"
+        msg += "• [Jazz & Blues Bologna](https://www.ticketone.it/city/bologna-66/genre/jazz-blues-250/)\n"
+        msg += "• [Eventbrite Bologna](https://www.eventbrite.it/d/italy--bologna/music/)\n"
+        msg += "_Nessun evento trovato automaticamente — controlla i link_\n"
+
+    # ── CAMPIGLIO / PINZOLO ──
+    msg += "\n━━━━━━━━━━━━━━━━━━━━\n🏔️ *MADONNA DI CAMPIGLIO / PINZOLO*\n"
+
+    ev_camp = fetch_campiglio_eventi()
+    ev_suoni = fetch_suoni_dolomiti()
+
+    # Aggiungi sempre Mountain Beat (confermato)
+    msg += "🎸 *Mountain Beat Festival* — Doss del Sabion, Pinzolo\n"
+    msg += "  • 20/06: Ben Harper\n"
+    msg += "  • 28/06: Elisa with Dardust\n"
+    msg += "  🔗 [campigliodolomiti.it/mountain-beat](https://www.campigliodolomiti.it/it/mountain-beat)\n\n"
+
+    # Suoni delle Dolomiti
+    msg += "🎵 *I Suoni delle Dolomiti 2026* (concerti gratuiti in quota)\n"
+    msg += "  • 12/09: concerto al Piano del Lago Asciutto\n"
+    msg += "  • 15/09: Jakub Józef Orliński — Malga Brenta Bassa\n"
+    msg += "  • 20/09: Voces8 Scholars Ensemble — Pradalago\n"
+    msg += "  🔗 [isuonidelledolomiti.it](https://www.isuonidelledolomiti.it/edizioni/edizione-2026)\n"
+
+    if ev_camp:
+        msg += "\n*Altri eventi Campiglio:*\n"
+        for titolo, link, data in ev_camp[:4]:
+            data_str = f" · 📅 {data}" if data else ""
+            msg += f"• [{titolo}]({link}){data_str}\n"
 
     msg += "\n━━━━━━━━━━━━━━━━━━━━"
     return msg
