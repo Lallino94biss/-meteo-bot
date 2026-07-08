@@ -1,30 +1,15 @@
 import requests
+import math
 from datetime import datetime
 
 TELEGRAM_TOKEN = "8768768166:AAEwwMI3RmV39RTC7iHlQMw0AoYJRcuKNII"
 CHAT_ID        = "1394865007"
 
-# Coordinate centro zona (tra Ravenna e Imola)
-LAT = 44.42
-LON = 12.05
-ZOOM = 7  # 6=regione, 7=zona, 8=locale
-
-def get_radar_url():
-    """Recupera l'ultimo frame radar disponibile da RainViewer."""
-    api = requests.get("https://api.rainviewer.com/public/weather-maps.json", timeout=10)
-    data = api.json()
-    last_frame = data["radar"]["past"][-1]["path"]
-    # URL immagine radar centrata sulla zona
-    radar_url = (
-        f"https://tilecache.rainviewer.com{last_frame}"
-        f"/256/{ZOOM}/"
-        f"{lat_to_tile(LAT, ZOOM)}/{lon_to_tile(LON, ZOOM)}"
-        f"/2/1_1.png"
-    )
-    return radar_url
+LAT  = 44.42
+LON  = 12.05
+ZOOM = 6
 
 def lat_to_tile(lat, zoom):
-    import math
     lat_r = math.radians(lat)
     n = 2 ** zoom
     return int((1 - math.log(math.tan(lat_r) + 1/math.cos(lat_r)) / math.pi) / 2 * n)
@@ -34,28 +19,33 @@ def lon_to_tile(lon, zoom):
     return int((lon + 180) / 360 * n)
 
 def send_radar():
-    # Ottieni URL radar
+    # 1. Recupera ultimo frame radar
     api = requests.get("https://api.rainviewer.com/public/weather-maps.json", timeout=10)
     data = api.json()
-    last_path = data["radar"]["past"][-1]["path"]
-    ts = data["radar"]["past"][-1]["time"]
-    ora = datetime.utcfromtimestamp(ts).strftime("%H:%M UTC")
+    last = data["radar"]["past"][-1]
+    path = last["path"]
+    ts   = last["time"]
+    ora  = datetime.utcfromtimestamp(ts).strftime("%H:%M UTC")
 
-    # Usa l'endpoint immagine statica di RainViewer (mappa + radar overlay)
-    img_url = (
-        f"https://api.rainviewer.com/public/weather-maps/{last_path.split('/')[2]}"
-        f"/512/{ZOOM}/{lat_to_tile(LAT, ZOOM)}/{lon_to_tile(LON, ZOOM)}/2/1_1.png"
-    )
+    x = lon_to_tile(LON, ZOOM)
+    y = lat_to_tile(LAT, ZOOM)
 
-    # Invia come foto su Telegram
+    img_url = f"https://tilecache.rainviewer.com{path}/512/{ZOOM}/{x}/{y}/2/1_1.png"
+    print(f"URL radar: {img_url}")
+
+    # 2. Scarica immagine
+    img_data = requests.get(img_url, timeout=15)
+    img_data.raise_for_status()
+
+    # 3. Invia come file a Telegram
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    files = {"photo": ("radar.png", img_data.content, "image/png")}
     payload = {
-        "chat_id": CHAT_ID,
-        "photo": img_url,
-        "caption": f"🛰️ *Radar precipitazioni* — {ora}\n📍 Ravenna · Imola · Emilia-Romagna",
+        "chat_id":    CHAT_ID,
+        "caption":    f"🛰️ *Radar precipitazioni* — {ora}\n📍 Emilia-Romagna · Adriatico",
         "parse_mode": "Markdown"
     }
-    r = requests.post(url, json=payload, timeout=15)
+    r = requests.post(url, data=payload, files=files, timeout=20)
     return r.json()
 
 result = send_radar()
