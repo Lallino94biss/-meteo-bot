@@ -1,17 +1,20 @@
 import requests
-from datetime import datetime, timezone, timedelta
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import io
+from datetime import datetime
 
 # ── CONFIGURAZIONE ──────────────────────────────────────────
 TELEGRAM_TOKEN = "8768768166:AAEwwMI3RmV39RTC7iHlQMw0AoYJRcuKNII"
 CHAT_ID        = "1394865007"
 
-# Coordinate
-LAT_MARE   = 44.4755   # Marina di Ravenna
+LAT_MARE   = 44.4755
 LON_MARE   = 12.2869
-LAT_IMOLA  = 44.3537   # Giardino, Imola
+LAT_IMOLA  = 44.3537
 LON_IMOLA  = 11.7058
 
-# Soglia alert vento Giardino (km/h)
 SOGLIA_VENTO = 25
 # ────────────────────────────────────────────────────────────
 
@@ -39,15 +42,15 @@ def wind_direction_label(degrees):
 
 
 def weather_emoji(code):
-    if code == 0:              return "☀️"
-    elif code in (1, 2):       return "🌤️"
-    elif code == 3:            return "☁️"
-    elif code in (45, 48):     return "🌫️"
-    elif code in (51,53,55):   return "🌦️"
-    elif code in (61,63,65):   return "🌧️"
-    elif code in (80,81,82):   return "🌧️"
-    elif code in (95,96,99):   return "⛈️"
-    else:                      return "🌡️"
+    if code == 0:             return "☀️"
+    elif code in (1, 2):      return "🌤️"
+    elif code == 3:           return "☁️"
+    elif code in (45, 48):    return "🌫️"
+    elif code in (51,53,55):  return "🌦️"
+    elif code in (61,63,65):  return "🌧️"
+    elif code in (80,81,82):  return "🌧️"
+    elif code in (95,96,99):  return "⛈️"
+    else:                     return "🌡️"
 
 
 def sea_state(wind_knots):
@@ -72,53 +75,94 @@ def wind_note(direction_label, speed_kmh):
         return f"Vento da {direction_label} nella norma"
 
 
-def fascia_vento(data, lat, lon, today_index=0):
-    """Estrae dati orari per fasce: mattina, pomeriggio, sera."""
-    hours   = data["hourly"]["time"]
-    speeds  = data["hourly"]["windspeed_10m"]
-    gusts   = data["hourly"]["windgusts_10m"]
-    dirs    = data["hourly"]["winddirection_10m"]
-    precips = data["hourly"]["precipitation_probability"]
+def fascia_vento(data, today_index=0):
+    hours  = data["hourly"]["time"]
+    speeds = data["hourly"]["windspeed_10m"]
+    gusts  = data["hourly"]["windgusts_10m"]
+    dirs   = data["hourly"]["winddirection_10m"]
+    precip = data["hourly"]["precipitation_probability"]
 
-    # Filtra solo le ore di oggi (prime 24 voci se forecast_days=2)
     offset = today_index * 24
     result = {}
     fasce = {
-        "🌅 Mattina (6–12)":    range(6, 12),
+        "🌅 Mattina (6–12)":     range(6, 12),
         "☀️ Pomeriggio (12–18)": range(12, 18),
         "🌙 Sera (18–22)":       range(18, 22),
     }
     for nome, ore in fasce.items():
-        fascia_speeds = [speeds[offset + h] for h in ore]
-        fascia_gusts  = [gusts[offset + h]  for h in ore]
-        fascia_dirs   = [dirs[offset + h]   for h in ore]
-        fascia_prec   = [precips[offset + h] for h in ore]
-
-        avg_speed = sum(fascia_speeds) / len(fascia_speeds)
-        max_gust  = max(fascia_gusts)
-        # direzione più frequente
-        avg_dir   = fascia_dirs[len(fascia_dirs)//2]
-        max_prec  = max(fascia_prec)
-
+        s = [speeds[offset+h] for h in ore]
+        g = [gusts[offset+h]  for h in ore]
+        d = dirs[offset + list(ore)[len(list(ore))//2]]
+        p = [precip[offset+h] for h in ore]
         result[nome] = {
-            "avg_kmh":  round(avg_speed, 1),
-            "avg_kn":   round(avg_speed / 1.852, 1),
-            "max_gust": round(max_gust, 1),
-            "dir":      wind_direction_label(avg_dir),
-            "precip":   max_prec,
+            "avg_kmh":  round(sum(s)/len(s), 1),
+            "avg_kn":   round(sum(s)/len(s)/1.852, 1),
+            "max_gust": round(max(g), 1),
+            "dir":      wind_direction_label(d),
+            "precip":   max(p),
         }
     return result
 
 
-def build_message():
+def genera_grafico(mare, imola):
+    """Genera grafico vento orario e restituisce PNG come bytes."""
+    ore_labels = [f"{h:02d}:00" for h in range(6, 23)]
+    idx = list(range(6, 23))
+
+    vento_imola   = [imola["hourly"]["windspeed_10m"][h]  for h in idx]
+    raffiche_imola= [imola["hourly"]["windgusts_10m"][h]  for h in idx]
+    vento_mare    = [mare["hourly"]["windspeed_10m"][h]   for h in idx]
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    fig.patch.set_facecolor('#1a1a1a')
+    ax.set_facecolor('#1a1a1a')
+
+    ax.fill_between(ore_labels, vento_imola, alpha=0.15, color='#2a78d6')
+    ax.plot(ore_labels, vento_imola,    color='#2a78d6', linewidth=2.5,
+            label='Vento Giardino', marker='o', markersize=4)
+    ax.plot(ore_labels, raffiche_imola, color='#e34948', linewidth=2,
+            linestyle='--', label='Raffiche Giardino', marker='', alpha=0.85)
+    ax.plot(ore_labels, vento_mare,     color='#1baf7a', linewidth=2,
+            label='Vento Costa Ravenna', marker='', alpha=0.85)
+
+    # soglia vento
+    ax.axhline(y=SOGLIA_VENTO, color='#eda100', linewidth=1,
+               linestyle=':', alpha=0.7, label=f'Soglia {SOGLIA_VENTO} km/h')
+
+    ax.set_xticks(range(len(ore_labels)))
+    ax.set_xticklabels(ore_labels, rotation=45, ha='right',
+                       fontsize=9, color='#898781')
+    ax.yaxis.set_tick_params(labelcolor='#898781', labelsize=9)
+    ax.set_ylabel('km/h', color='#898781', fontsize=10)
+    ax.grid(True, color='#2c2c2a', linewidth=0.8, alpha=0.8)
+    ax.spines['bottom'].set_color('#383835')
+    ax.spines['left'].set_color('#383835')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    today = datetime.now().strftime("%d/%m/%Y")
+    ax.set_title(f'Vento orario — {today}',
+                 color='#ffffff', fontsize=12, fontweight='bold', pad=10)
+
+    legend = ax.legend(loc='upper left', fontsize=9,
+                       facecolor='#2c2c2a', edgecolor='#383835',
+                       labelcolor='#c3c2b7', framealpha=0.9)
+
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=130, bbox_inches='tight',
+                facecolor=fig.get_facecolor())
+    buf.seek(0)
+    plt.close()
+    return buf.read()
+
+
+def build_message(mare, imola):
     now   = datetime.now()
     slot  = "🌅 Mattina" if now.hour < 13 else "☀️ Mezzogiorno"
     today = now.strftime("%A %d %B %Y").capitalize()
 
-    mare  = get_weather(LAT_MARE,  LON_MARE)
-    imola = get_weather(LAT_IMOLA, LON_IMOLA)
-
-    # ── DATI GIORNALIERI MARE ──
     md       = mare["daily"]
     m_code   = md["weathercode"][0]
     m_tmax   = md["temperature_2m_max"][0]
@@ -131,11 +175,8 @@ def build_message():
     m_dir    = wind_direction_label(m_wdir)
     m_sea    = sea_state(m_wkn)
     m_emoji  = weather_emoji(m_code)
+    fasce_mare = fascia_vento(mare)
 
-    # ── FASCE ORARIE MARE ──
-    fasce_mare = fascia_vento(mare, LAT_MARE, LON_MARE)
-
-    # ── DATI GIORNALIERI IMOLA ──
     id_      = imola["daily"]
     i_code   = id_["weathercode"][0]
     i_tmax   = id_["temperature_2m_max"][0]
@@ -147,18 +188,14 @@ def build_message():
     i_dir    = wind_direction_label(i_wdir)
     i_emoji  = weather_emoji(i_code)
     i_note   = wind_note(i_dir, i_wmax)
+    fasce_imola = fascia_vento(imola)
 
-    # ── FASCE ORARIE IMOLA ──
-    fasce_imola = fascia_vento(imola, LAT_IMOLA, LON_IMOLA)
-
-    # ── ALERT VENTO ──
     alert = ""
     if i_wmax >= SOGLIA_VENTO:
-        alert = f"\n🚨 *ALERT VENTO* — Giardino: raffiche fino a {i_gust:.0f} km/h oggi!\n"
+        alert = f"\n🚨 *ALERT VENTO* — Giardino: raffiche fino a {i_gust:.0f} km/h!\n"
     elif i_gust >= SOGLIA_VENTO:
         alert = f"\n⚠️ *ATTENZIONE* — Raffiche fino a {i_gust:.0f} km/h a Giardino\n"
 
-    # ── SEZIONE FASCE MARE ──
     fasce_mare_txt = ""
     for nome, v in fasce_mare.items():
         fasce_mare_txt += (
@@ -167,7 +204,6 @@ def build_message():
             f"Raffiche {v['max_gust']} km/h · 🌧️ {v['precip']}%\n"
         )
 
-    # ── SEZIONE FASCE IMOLA ──
     fasce_imola_txt = ""
     for nome, v in fasce_imola.items():
         flag = " 🚨" if v['avg_kmh'] >= SOGLIA_VENTO or v['max_gust'] >= SOGLIA_VENTO else ""
@@ -187,7 +223,7 @@ _(Punta Marina · Marina Romea · Marina di Ravenna)_
 💨 Vento max: *{m_dir} {m_wkn} nodi* ({m_wmax:.0f} km/h) · Raffiche {m_gust:.0f} km/h
 🌊 Mare: *{m_sea}*
 
-*Vento per fascia oraria:*
+*Vento per fascia:*
 {fasce_mare_txt}
 ━━━━━━━━━━━━━━━━━━━━
 🏔️ *GIARDINO / SASSO MORELLI (Imola)*
@@ -195,28 +231,44 @@ _(Punta Marina · Marina Romea · Marina di Ravenna)_
 {i_emoji} Max {i_tmax}°C · Pioggia: {i_precip}%
 💨 Vento max: *{i_dir} {i_wkn} nodi* ({i_wmax:.0f} km/h) · Raffiche {i_gust:.0f} km/h
 
-*Vento per fascia oraria:*
+*Vento per fascia:*
 {fasce_imola_txt}
 📝 {i_note}
 ━━━━━━━━━━━━━━━━━━━━"""
-
     return msg
 
 
-def send_telegram(text):
+def send_telegram_photo(photo_bytes, caption):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    files = {"photo": ("vento.png", photo_bytes, "image/png")}
+    payload = {"chat_id": CHAT_ID, "caption": caption,
+                "parse_mode": "Markdown"}
+    r = requests.post(url, data=payload, files=files, timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+
+def send_telegram_text(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown"
-    }
+    payload = {"chat_id": CHAT_ID, "text": text,
+                "parse_mode": "Markdown"}
     r = requests.post(url, json=payload, timeout=10)
     r.raise_for_status()
     return r.json()
 
 
 if __name__ == "__main__":
-    msg = build_message()
-    print(msg)
-    result = send_telegram(msg)
-    print("✅ Inviato!" if result.get("ok") else f"❌ Errore: {result}")
+    mare  = get_weather(LAT_MARE,  LON_MARE)
+    imola = get_weather(LAT_IMOLA, LON_IMOLA)
+
+    # 1. Invia testo bollettino
+    msg = build_message(mare, imola)
+    r1 = send_telegram_text(msg)
+    print("✅ Testo inviato!" if r1.get("ok") else f"❌ Errore testo: {r1}")
+
+    # 2. Genera e invia grafico vento
+    grafico = genera_grafico(mare, imola)
+    now = datetime.now()
+    slot = "Mattina" if now.hour < 13 else "Mezzogiorno"
+    r2 = send_telegram_photo(grafico, f"📊 *Grafico vento orario* — {slot}")
+    print("✅ Grafico inviato!" if r2.get("ok") else f"❌ Errore grafico: {r2}")
