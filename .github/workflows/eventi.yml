@@ -1,9 +1,7 @@
 name: Eventi Bot
 
 on:
-  schedule:
-    - cron: '0 8 1 * *'    # 1° del mese alle 8:00
-    - cron: '0 8 15 * *'   # 15 del mese alle 8:00
+
   workflow_dispatch:
 
 jobs:
