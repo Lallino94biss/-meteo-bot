@@ -1,8 +1,6 @@
 name: Notizie Bot
 
 on:
-  schedule:
-    - cron: '0 4 * * *'   # 08:00 ora italiana
   workflow_dispatch:
 
 jobs:
